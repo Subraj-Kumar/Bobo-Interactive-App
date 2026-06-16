@@ -8,7 +8,6 @@ import 'package:confetti/confetti.dart';
 class CameraHuntScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
 
-  // Constructor requires the cameras list
   const CameraHuntScreen({Key? key, required this.cameras}) : super(key: key);
 
   @override
@@ -26,6 +25,9 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
   String _feedbackMessage = "Find a Cup or Mug!";
   int _score = 0;
 
+  // New state variables for visual enhancements
+  Color _screenBorderColor = Colors.transparent;
+
   final List<String> _targetKeywords = ['cup', 'mug', 'bottle', 'drinkware'];
 
   @override
@@ -35,6 +37,7 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
       duration: const Duration(seconds: 2),
     );
 
+    // Initializing ML Kit with a slightly stricter confidence for better accuracy
     final options = ImageLabelerOptions(confidenceThreshold: 0.65);
     _imageLabeler = ImageLabeler(options: options);
 
@@ -88,6 +91,7 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
     setState(() {
       _isProcessing = true;
       _feedbackMessage = "Looking...";
+      _screenBorderColor = Colors.transparent; // Reset border
     });
     HapticFeedback.lightImpact();
 
@@ -99,20 +103,28 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
       );
 
       bool foundTarget = false;
+      String matchedLabel = "";
+
+      // Check labels against our keywords
       for (ImageLabel label in labels) {
         final text = label.label.toLowerCase();
         debugPrint("Detected: $text with confidence ${label.confidence}");
 
         if (_targetKeywords.any((keyword) => text.contains(keyword))) {
           foundTarget = true;
+          // Capitalize the first letter for the UI
+          matchedLabel = text[0].toUpperCase() + text.substring(1);
           break;
         }
       }
 
       if (foundTarget) {
+        // --- SUCCESS STATE ---
         HapticFeedback.vibrate();
         _confettiController.play();
+
         try {
+          // Ensure your asset is at assets/audio/giggle.mp3 in pubspec.yaml
           await _audioPlayer.play(AssetSource('audio/giggle.mp3'));
         } catch (e) {
           debugPrint("Audio file not found: $e");
@@ -120,26 +132,46 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
 
         setState(() {
           _score++;
-          _feedbackMessage = "Yay! You found it!";
+          _feedbackMessage = "Yay! You found a $matchedLabel!";
+          _screenBorderColor = Colors.greenAccent.withOpacity(
+            0.5,
+          ); // Green flash
         });
 
+        // Reset UI after 3 seconds
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) {
             setState(() {
               _feedbackMessage = "Find another Cup or Mug!";
+              _screenBorderColor = Colors.transparent;
             });
           }
         });
       } else {
+        // --- FAIL STATE ---
         HapticFeedback.heavyImpact();
         setState(() {
           _feedbackMessage = "Oops, not quite! Try again.";
+          _screenBorderColor = Colors.redAccent.withOpacity(0.5); // Red flash
+        });
+
+        // Clear the red border after a short delay
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            setState(() {
+              _screenBorderColor = Colors.transparent;
+              if (_feedbackMessage.contains("Oops")) {
+                _feedbackMessage = "Find a Cup or Mug!";
+              }
+            });
+          }
         });
       }
     } catch (e) {
       debugPrint("Error processing image: $e");
       setState(() {
         _feedbackMessage = "Something went wrong. Try again!";
+        _screenBorderColor = Colors.transparent;
       });
     } finally {
       setState(() {
@@ -164,36 +196,47 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: const BackButton(
-          color: Colors.white,
-        ), // White to show up over the camera feed
+        leading: const BackButton(color: Colors.white),
       ),
-      extendBodyBehindAppBar:
-          true, // Let the camera feed take up the whole screen
+      extendBodyBehindAppBar: true,
       body: Stack(
         alignment: Alignment.center,
         children: [
-          SizedBox(
+          // 1. Camera Feed with Animated Border Flash
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
             width: size.width,
             height: size.height,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _screenBorderColor,
+                width: _screenBorderColor == Colors.transparent ? 0 : 12,
+              ),
+            ),
             child: widget.cameras.isEmpty
                 ? const Center(child: Text("No camera available"))
                 : CameraPreview(_cameraController),
           ),
+
+          // 2. Confetti Layer (Top Center)
           Align(
             alignment: Alignment.topCenter,
             child: ConfettiWidget(
               confettiController: _confettiController,
               blastDirectionality: BlastDirectionality.explosive,
               emissionFrequency: 0.05,
-              numberOfParticles: 40,
+              numberOfParticles:
+                  50, // Slightly more particles for better visual reward
               gravity: 0.2,
             ),
           ),
+
+          // 3. UI Overlay
           SafeArea(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // Top Feedback Box
                 Container(
                   margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.symmetric(
@@ -201,12 +244,13 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
                     vertical: 16,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withOpacity(0.95),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 10,
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5),
                       ),
                     ],
                   ),
@@ -216,10 +260,15 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
                       Expanded(
                         child: Text(
                           _feedbackMessage,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF4A4A4A),
+                            // Change text color dynamically based on success/fail
+                            color:
+                                _screenBorderColor ==
+                                    Colors.redAccent.withOpacity(0.5)
+                                ? Colors.redAccent
+                                : const Color(0xFF4A4A4A),
                           ),
                         ),
                       ),
@@ -242,16 +291,19 @@ class _CameraHuntScreenState extends State<CameraHuntScreen> {
                     ],
                   ),
                 ),
+
+                // Bottom Capture Button
                 Padding(
                   padding: const EdgeInsets.only(bottom: 40),
                   child: GestureDetector(
                     onTap: _captureAndAnalyze,
-                    child: Container(
-                      width: 90,
-                      height: 90,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: _isProcessing ? 80 : 90,
+                      height: _isProcessing ? 80 : 90,
                       decoration: BoxDecoration(
                         color: _isProcessing
-                            ? Colors.grey
+                            ? Colors.grey.shade400
                             : const Color(0xFFF39C7D),
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 6),

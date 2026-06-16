@@ -54,7 +54,7 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
   void initState() {
     super.initState();
     _confettiController = ConfettiController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1500),
     );
   }
 
@@ -145,7 +145,7 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
               confettiController: _confettiController,
               blastDirectionality: BlastDirectionality.explosive,
               emissionFrequency: 0.05,
-              numberOfParticles: 30,
+              numberOfParticles: 40,
               gravity: 0.3,
             ),
           ),
@@ -202,6 +202,7 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(30),
             ),
+            elevation: 5,
           ),
           child: const Text(
             "Start Safari",
@@ -220,6 +221,8 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
     final size = MediaQuery.of(context).size;
     final currentRound = _rounds[_currentRoundIndex];
     final Color targetColor = currentRound['targetColor'];
+
+    // Seed the randomizer based on the round so it doesn't shuffle on every setState rebuild
     List<Color> options = List.from(currentRound['options']);
     options.shuffle(Random(_currentRoundIndex));
 
@@ -227,21 +230,54 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
       mainAxisAlignment: MainAxisAlignment.start,
       children: [
         SizedBox(height: size.height * 0.02),
+
+        // Visual Progress Tracker (Stars)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(5, (index) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: AnimatedScale(
+                scale: index == _currentRoundIndex ? 1.2 : 1.0,
+                duration: const Duration(milliseconds: 300),
+                child: Icon(
+                  Icons.star_rounded,
+                  color: index < _currentRoundIndex
+                      ? Colors.amber
+                      : Colors.grey.shade300,
+                  size: 36,
+                ),
+              ),
+            );
+          }),
+        ),
+
+        SizedBox(height: size.height * 0.03),
         SizedBox(
           width: min(size.width * 0.2, 100),
           child: const FittedBox(child: BoboFace()),
         ),
         SizedBox(height: size.height * 0.02),
-        Text(
-          _feedbackMessage,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: size.width * 0.07 > 28 ? 28 : size.width * 0.07,
-            fontWeight: FontWeight.bold,
-            color: _isWrongAnswer ? Colors.redAccent : const Color(0xFF4A4A4A),
+
+        // Feedback Message
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: Text(
+            _feedbackMessage,
+            key: ValueKey<String>(_feedbackMessage),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: size.width * 0.07 > 28 ? 28 : size.width * 0.07,
+              fontWeight: FontWeight.bold,
+              color: _isWrongAnswer
+                  ? Colors.redAccent
+                  : const Color(0xFF4A4A4A),
+            ),
           ),
         ),
         SizedBox(height: size.height * 0.04),
+
+        // Shape Grid with Tactile Feedback
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -257,24 +293,33 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
                 ),
                 itemCount: options.length,
                 itemBuilder: (context, index) {
-                  return GestureDetector(
-                    onTap: () => _handleColorTap(options[index], targetColor),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: options[index],
-                        shape: index % 2 == 0
-                            ? BoxShape.circle
-                            : BoxShape.rectangle,
-                        borderRadius: index % 2 != 0
-                            ? BorderRadius.circular(20)
-                            : null,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+                  final isCircle = index % 2 == 0;
+                  final borderRadius = isCircle
+                      ? BorderRadius.circular(1000)
+                      : BorderRadius.circular(20);
+
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _handleColorTap(options[index], targetColor),
+                      borderRadius: borderRadius,
+                      splashColor: Colors.white.withOpacity(0.3),
+                      highlightColor: Colors.white.withOpacity(0.1),
+                      child: Ink(
+                        decoration: BoxDecoration(
+                          color: options[index],
+                          shape: isCircle
+                              ? BoxShape.circle
+                              : BoxShape.rectangle,
+                          borderRadius: isCircle ? null : borderRadius,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -325,6 +370,7 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(30),
             ),
+            elevation: 5,
           ),
           child: const Text(
             "Play Again",
@@ -340,91 +386,133 @@ class _ColorGameScreenState extends State<ColorGameScreen> {
   }
 }
 
-class BoboFace extends StatelessWidget {
+/// A stateful Bobo face that gently floats up and down to feel "alive"
+class BoboFace extends StatefulWidget {
   const BoboFace({Key? key}) : super(key: key);
+
+  @override
+  State<BoboFace> createState() => _BoboFaceState();
+}
+
+class _BoboFaceState extends State<BoboFace>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _breathingController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Creates a smooth, continuous up-and-down floating effect
+    _breathingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _breathingController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 250,
-      height: 250,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned(
-            left: 10,
-            top: 40,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: const BoxDecoration(
-                color: Color(0xFFF39C7D),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          Positioned(
-            right: 10,
-            top: 40,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: const BoxDecoration(
-                color: Color(0xFFF39C7D),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF39C7D),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
+    return AnimatedBuilder(
+      animation: _breathingController,
+      builder: (context, child) {
+        return Transform.translate(
+          // Moves Bobo smoothly by 8 pixels up and down
+          offset: Offset(0, -8 * _breathingController.value),
+          child: child,
+        );
+      },
+      child: SizedBox(
+        width: 250,
+        height: 250,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Left Ear
+            Positioned(
+              left: 10,
+              top: 40,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF39C7D),
+                  shape: BoxShape.circle,
                 ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: 90,
-            top: 100,
-            child: Container(
-              width: 15,
-              height: 15,
-              decoration: const BoxDecoration(
-                color: Color(0xFF333333),
-                shape: BoxShape.circle,
               ),
             ),
-          ),
-          Positioned(
-            right: 90,
-            top: 100,
-            child: Container(
-              width: 15,
-              height: 15,
-              decoration: const BoxDecoration(
-                color: Color(0xFF333333),
-                shape: BoxShape.circle,
+            // Right Ear
+            Positioned(
+              right: 10,
+              top: 40,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF39C7D),
+                  shape: BoxShape.circle,
+                ),
               ),
             ),
-          ),
-          Positioned(
-            top: 120,
-            child: Container(
-              width: 20,
-              height: 60,
+            // Main Head
+            Container(
+              width: 160,
+              height: 160,
               decoration: BoxDecoration(
-                color: const Color(0xFFE08969),
-                borderRadius: BorderRadius.circular(10),
+                color: const Color(0xFFF39C7D),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+            // Left Eye
+            Positioned(
+              left: 90,
+              top: 100,
+              child: Container(
+                width: 15,
+                height: 15,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF333333),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            // Right Eye
+            Positioned(
+              right: 90,
+              top: 100,
+              child: Container(
+                width: 15,
+                height: 15,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF333333),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            // Trunk
+            Positioned(
+              top: 120,
+              child: Container(
+                width: 20,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE08969),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
